@@ -6,7 +6,7 @@ const fs = require('fs');
 
 // Настройки
 const app = express();
-const SECRET = process.env.SECRET_KEY || 'DEFAULT_SECRET_CHANGE_ME';
+const SECRET = process.env.SECRET_KEY || 'IXA-SECRET-123';
 const PORT = process.env.PORT || 3000;
 
 // Защита сервера
@@ -19,10 +19,17 @@ app.use(rateLimit({
 
 // Список всех ваших ключей
 const VALID_KEYS = new Set([
-  "IXA-57931-KEY", "IXA-68245-KEY", "IXA-79356-KEY", 
-  "IXA-86427-KEY", "IXA-92538-KEY", "IXA-13649-KEY",
-  // ... Вставьте ВСЕ ваши 50 ключей ...
-  "IXA-98083-KEY" // Последний ключ
+    "IXA-57931-KEY", "IXA-68245-KEY", "IXA-79356-KEY", "IXA-86427-KEY", "IXA-92538-KEY",
+    "IXA-13649-KEY", "IXA-24750-KEY", "IXA-35861-KEY", "IXA-46972-KEY", "IXA-57083-KEY",
+    "IXA-68194-KEY", "IXA-79205-KEY", "IXA-80316-KEY", "IXA-91427-KEY", "IXA-12538-KEY",
+    "IXA-23649-KEY", "IXA-34750-KEY", "IXA-45861-KEY", "IXA-56972-KEY", "IXA-67083-KEY",
+    "IXA-78194-KEY", "IXA-89205-KEY", "IXA-90316-KEY", "IXA-01427-KEY", "IXA-23538-KEY",
+    "IXA-34649-KEY", "IXA-45750-KEY", "IXA-56861-KEY", "IXA-67972-KEY", "IXA-78083-KEY",
+    "IXA-89194-KEY", "IXA-90205-KEY", "IXA-01316-KEY", "IXA-12427-KEY", "IXA-33538-KEY",
+    "IXA-44649-KEY", "IXA-55750-KEY", "IXA-66861-KEY", "IXA-77972-KEY", "IXA-88083-KEY",
+    "IXA-99194-KEY", "IXA-00205-KEY", "IXA-11316-KEY", "IXA-22427-KEY", "IXA-43538-KEY",
+    "IXA-54649-KEY", "IXA-65750-KEY", "IXA-76861-KEY", "IXA-87972-KEY", "IXA-98083-KEY"
+
 ]);
 
 // База активированных ключей
