@@ -1,15 +1,12 @@
-// server.js - Полный сервер для проверки ключей
 require('dotenv').config();
 const express = require('express');
-const rateLimit = require('express-rate-limit');
-const fs = require('fs');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
-// Инициализация
 const app = express();
 const PORT = process.env.PORT || 3000;
-const SECRET = process.env.SECRET_KEY || 'DEFAULT_SECRET_CHANGE_ME!';
+const SECRET = process.env.SECRET_KEY || 'IXA-SECRET-123';
 
-// Все 50 ключей (полный список)
+// Все ваши 50 ключей
 const VALID_KEYS = new Set([
   "IXA-57931-KEY", "IXA-68245-KEY", "IXA-79356-KEY", "IXA-86427-KEY", "IXA-92538-KEY",
   "IXA-13649-KEY", "IXA-24750-KEY", "IXA-35861-KEY", "IXA-46972-KEY", "IXA-57083-KEY",
@@ -23,18 +20,18 @@ const VALID_KEYS = new Set([
   "IXA-54649-KEY", "IXA-65750-KEY", "IXA-76861-KEY", "IXA-87972-KEY", "IXA-98083-KEY"
 ]);
 
-// База активированных ключей (в памяти)
-const activatedKeys = {};
+// Хранилище активированных ключей
+const activatedKeys = new Map();
 
-// Защита от DDoS
-const limiter = rateLimit({
-  windowMs: 60 * 1000, // 1 минута
-  max: 30 // 30 запросов с 1 IP
-});
+// Keep-alive система
+setInterval(() => {
+  console.log('[Keep-Alive] Pinging server...');
+  fetch(`https://${process.env.RENDER_INSTANCE_NAME || 'ixa-key-server'}.onrender.com/ping`)
+    .catch(err => console.error('Keep-alive failed:', err));
+}, 4 * 60 * 1000); // Каждые 4 минуты
 
 // Middleware
 app.use(express.json());
-app.use(limiter);
 
 // Проверка аутентификации
 const authenticate = (req, res, next) => {
@@ -44,65 +41,80 @@ const authenticate = (req, res, next) => {
   next();
 };
 
-// Роут для проверки ключа
+// Роуты
+app.get('/ping', (req, res) => res.send('pong'));
+
+app.get('/keys', (req, res) => {
+  res.json({
+    validKeys: Array.from(VALID_KEYS),
+    activatedKeys: Array.from(activatedKeys.entries())
+  });
+});
+
 app.post('/check', authenticate, (req, res) => {
   try {
-    const { key, hwid } = req.body;
+    const { key, userId } = req.body;
 
-    // 1. Проверка существования ключа
+    // 1. Проверка валидности ключа
     if (!VALID_KEYS.has(key)) {
       return res.json({ valid: false, error: "Неверный лицензионный ключ" });
     }
 
     // 2. Проверка активации
-    if (activatedKeys[key]) {
-      if (activatedKeys[key].hwid !== hwid) {
+    if (activatedKeys.has(key)) {
+      const keyData = activatedKeys.get(key);
+      
+      if (keyData.userId !== userId) {
         return res.json({ 
           valid: false, 
-          error: "Ключ уже активирован на другом устройстве" 
+          error: `Ключ уже активирован пользователем ${keyData.userId}`,
+          activated: keyData.activated,
+          expires: keyData.expires
         });
       }
+      
       return res.json({ 
-        valid: true, 
-        expires: activatedKeys[key].expires,
-        daysLeft: Math.ceil((activatedKeys[key].expires - Date.now()) / (1000 * 60 * 60 * 24))
+        valid: true,
+        activated: keyData.activated,
+        expires: keyData.expires,
+        daysLeft: Math.ceil((keyData.expires - Date.now()) / (1000 * 60 * 60 * 24))
       });
     }
 
     // 3. Активация нового ключа
-    activatedKeys[key] = {
-      hwid: hwid,
+    const activationData = {
+      userId,
       activated: Date.now(),
       expires: Date.now() + 7 * 24 * 60 * 60 * 1000 // 7 дней
     };
+    
+    activatedKeys.set(key, activationData);
 
     res.json({ 
-      valid: true, 
-      expires: activatedKeys[key].expires,
+      valid: true,
+      activated: activationData.activated,
+      expires: activationData.expires,
       daysLeft: 7
     });
 
-  } catch (error) {
-    console.error("Ошибка:", error);
+  } catch (err) {
+    console.error("Ошибка:", err);
     res.status(500).json({ error: "Внутренняя ошибка сервера" });
   }
 });
-
-// Пробуждение сервера (для Free-тарифа)
-setInterval(() => {
-  console.log('[Keep-Alive] Pinging server...');
-  fetch(`https://${process.env.RENDER_INSTANCE_NAME}.onrender.com/check`, {
-    method: 'POST',
-    headers: { 
-      'x-auth': SECRET,
-      'Content-Type': 'application/json' 
-    },
-    body: JSON.stringify({ key: "IXA-57931-KEY", hwid: "keepalive" })
-  }).catch(console.error);
-}, 4 * 60 * 1000); // Каждые 4 минуты
 
 // Запуск сервера
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
   console.log(`Секретный ключ: ${SECRET.substring(0, 3)}...${SECRET.substring(SECRET.length - 3)}`);
+  
+  // Пингуем себя сразу после запуска
+  fetch(`https://${process.env.RENDER_INSTANCE_NAME || 'ixa-key-server'}.onrender.com/ping`)
+    .catch(err => console.error('Initial ping failed:', err));
+});
+
+// Авто-перезапуск при ошибках
+process.on('uncaughtException', (err) => {
+  console.error('Critical error:', err);
+  setTimeout(() => process.exit(1), 1000);
 });
