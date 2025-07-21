@@ -7,7 +7,7 @@ const PORT = process.env.PORT || 3000;
 const SECRET = process.env.SECRET_KEY || 'IXA-SECRET-123';
 const RENDER_INSTANCE_NAME = process.env.RENDER_INSTANCE_NAME || 'ixa-key-server';
 
-// Все 50 ключей
+// Все 50 ключей (готовы к использованию)
 const VALID_KEYS = new Set([
   "IXA-57931-KEY", "IXA-68245-KEY", "IXA-79356-KEY", "IXA-86427-KEY", "IXA-92538-KEY",
   "IXA-13649-KEY", "IXA-24750-KEY", "IXA-35861-KEY", "IXA-46972-KEY", "IXA-57083-KEY",
@@ -27,7 +27,9 @@ const activatedKeys = new Map();
 // Middleware
 app.use(express.json());
 
-// Функция для пинга сервера
+// ======================
+// Функция пинга сервера
+// ======================
 const pingServer = async () => {
   try {
     console.log('[Keep-Alive] Pinging server...');
@@ -42,10 +44,35 @@ const pingServer = async () => {
 // Пинг каждые 5 минут (300000 мс)
 setInterval(pingServer, 300000);
 
-// Отправляем первый пинг сразу при запуске
+// Первый пинг при запуске
 pingServer();
 
+// ======================
+// Очистка просроченных ключей
+// ======================
+const cleanExpiredKeys = () => {
+  const now = new Date();
+  let deletedCount = 0;
+
+  activatedKeys.forEach((value, key) => {
+    if (now > new Date(value.expires)) {
+      activatedKeys.delete(key);
+      deletedCount++;
+    }
+  });
+
+  console.log(`[Cleanup] Удалено ${deletedCount} просроченных ключей`);
+};
+
+// Очистка каждые 12 часов
+setInterval(cleanExpiredKeys, 43200000); 
+
+// Первая очистка при запуске
+cleanExpiredKeys();
+
+// ======================
 // Роуты
+// ======================
 app.get('/ping', (req, res) => res.send('pong'));
 
 app.post('/check', (req, res) => {
@@ -65,23 +92,44 @@ app.post('/check', (req, res) => {
     // Проверка активации
     if (activatedKeys.has(key)) {
       const keyData = activatedKeys.get(key);
-      if (keyData.userId === userId) {
-        return res.json({ valid: true });
+      const now = new Date();
+      const expiresDate = new Date(keyData.expires);
+
+      // Если ключ просрочен
+      if (now > expiresDate) {
+        activatedKeys.delete(key);
+        return res.json({ valid: false, error: "Ключ истёк" });
       }
+
+      // Если ключ активирован тем же пользователем
+      if (keyData.userId === userId) {
+        return res.json({ 
+          valid: true, 
+          expires: keyData.expires,
+          activated: keyData.activated
+        });
+      }
+
+      // Если ключ занят другим пользователем
       return res.json({ 
         valid: false, 
-        error: `Ключ уже использован игроком #${keyData.userId}`
+        error: `Ключ уже использован игроком #${keyData.userId}`,
+        expires: keyData.expires
       });
     }
 
-    // Активация
+    // Активация нового ключа
     activatedKeys.set(key, {
       userId,
       activated: new Date().toISOString(),
       expires: new Date(Date.now() + 604800000).toISOString() // 7 дней
     });
 
-    res.json({ valid: true });
+    res.json({ 
+      valid: true,
+      expires: activatedKeys.get(key).expires,
+      activated: activatedKeys.get(key).activated
+    });
 
   } catch (err) {
     console.error("Ошибка сервера:", err);
@@ -89,9 +137,12 @@ app.post('/check', (req, res) => {
   }
 });
 
-// Запуск
+// ======================
+// Запуск сервера
+// ======================
 app.listen(PORT, () => {
   console.log(`Сервер запущен на порту ${PORT}`);
   console.log(`Доступно ключей: ${VALID_KEYS.size}`);
   console.log(`Keep-Alive будет пинговать https://${RENDER_INSTANCE_NAME}.onrender.com каждые 5 минут`);
+  console.log(`Очистка просроченных ключей выполняется каждые 12 часов`);
 });
