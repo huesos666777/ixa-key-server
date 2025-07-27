@@ -1,11 +1,26 @@
-require('dotenv').config();
 const express = require('express');
 const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fs = require('fs');
+
+// Конфигурация из файлов
+const config = {
+  PORT: 3000,
+  SECRET_KEY: 'IXA-SECRET-123', // Замените на ваш реальный ключ
+  GAMEPASS_ID: 1350640366       // Убедитесь, что это правильный ID
+};
+
+// Попытка прочитать из .env если есть
+if (fs.existsSync('.env')) {
+  const envFile = fs.readFileSync('.env', 'utf8');
+  envFile.split('\n').forEach(line => {
+    const [key, value] = line.split('=');
+    if (key && value) {
+      config[key.trim()] = value.trim().replace(/['"]+/g, '');
+    }
+  });
+}
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const SECRET = process.env.SECRET_KEY || 'IXA-SECRET-123';
-const GAMEPASS_ID = process.env.GAMEPASS_ID || 1350640366; // Замените на ваш ID
 
 // Настройки CORS
 app.use((req, res, next) => {
@@ -20,7 +35,7 @@ app.use(express.json());
 app.post('/check', async (req, res) => {
   try {
     // Проверка секретного ключа
-    if (req.headers['x-auth'] !== SECRET) {
+    if (req.headers['x-auth'] !== config.SECRET_KEY) {
       return res.status(401).json({ error: "Invalid auth key" });
     }
 
@@ -29,16 +44,17 @@ app.post('/check', async (req, res) => {
       return res.status(400).json({ error: "Invalid user ID" });
     }
 
-    // Запрос к Roblox API
-    const ROBLOX_API_URL = `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${GAMEPASS_ID}`;
-    const apiResponse = await fetch(ROBLOX_API_URL);
+    // Проверка через Roblox API
+    const response = await fetch(
+      `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${config.GAMEPASS_ID}/is-owned`
+    );
     
-    if (!apiResponse.ok) {
-      throw new Error(`Roblox API error: ${apiResponse.status}`);
+    if (!response.ok) {
+      throw new Error(`Roblox API error: ${response.status}`);
     }
 
-    const data = await apiResponse.json();
-    const hasPremium = data.data?.length > 0;
+    const data = await response.json();
+    const hasPremium = data.success === true;
 
     res.json({
       valid: hasPremium,
@@ -52,12 +68,15 @@ app.post('/check', async (req, res) => {
   }
 });
 
-// Keep-Alive для Render
+// Keep-Alive
 app.get('/ping', (req, res) => res.send('pong'));
 
 // Запуск сервера
-app.listen(PORT, () => {
-  console.log(`Server started on port ${PORT}`);
-  console.log(`GamePass ID: ${GAMEPASS_ID}`);
-  console.log(`Secret key: ${SECRET}`);
+app.listen(config.PORT, () => {
+  console.log(`╔══════════════════════════════╗`);
+  console.log(`║    IXA HUB Premium Server    ║`);
+  console.log(`╠══════════════════════════════╣`);
+  console.log(`║ Port: ${config.PORT}${' '.repeat(17 - config.PORT.toString().length)}║`);
+  console.log(`║ GamePass ID: ${config.GAMEPASS_ID}${' '.repeat(10 - config.GAMEPASS_ID.toString().length)}║`);
+  console.log(`╚══════════════════════════════╝`);
 });
