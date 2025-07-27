@@ -5,144 +5,59 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 const app = express();
 const PORT = process.env.PORT || 3000;
 const SECRET = process.env.SECRET_KEY || 'IXA-SECRET-123';
-const RENDER_INSTANCE_NAME = process.env.RENDER_INSTANCE_NAME || 'ixa-key-server';
+const GAMEPASS_ID = process.env.GAMEPASS_ID || 1350640366; // Замените на ваш ID
 
-// Все 50 ключей (готовы к использованию)
-const VALID_KEYS = new Set([
-  "IXA-57931-KEY", "IXA-68245-KEY", "IXA-79356-KEY", "IXA-86427-KEY", "IXA-92538-KEY",
-  "IXA-13649-KEY", "IXA-24750-KEY", "IXA-35861-KEY", "IXA-46972-KEY", "IXA-57083-KEY",
-  "IXA-68194-KEY", "IXA-79205-KEY", "IXA-80316-KEY", "IXA-91427-KEY", "IXA-12538-KEY",
-  "IXA-23649-KEY", "IXA-34750-KEY", "IXA-45861-KEY", "IXA-56972-KEY", "IXA-67083-KEY",
-  "IXA-78194-KEY", "IXA-89205-KEY", "IXA-90316-KEY", "IXA-01427-KEY", "IXA-23538-KEY",
-  "IXA-34649-KEY", "IXA-45750-KEY", "IXA-56861-KEY", "IXA-67972-KEY", "IXA-78083-KEY",
-  "IXA-89194-KEY", "IXA-90205-KEY", "IXA-01316-KEY", "IXA-12427-KEY", "IXA-33538-KEY",
-  "IXA-44649-KEY", "IXA-55750-KEY", "IXA-66861-KEY", "IXA-77972-KEY", "IXA-88083-KEY",
-  "IXA-99194-KEY", "IXA-00205-KEY", "IXA-11316-KEY", "IXA-22427-KEY", "IXA-43538-KEY",
-  "IXA-54649-KEY", "IXA-65750-KEY", "IXA-76861-KEY", "IXA-87972-KEY", "IXA-98083-KEY"
-]);
+// Настройки CORS
+app.use((req, res, next) => {
+  res.header("Access-Control-Allow-Origin", "*");
+  res.header("Access-Control-Allow-Headers", "Content-Type, x-auth");
+  next();
+});
 
-// Хранилище активаций
-const activatedKeys = new Map();
-
-// Middleware
 app.use(express.json());
 
-// ======================
-// Функция пинга сервера
-// ======================
-const pingServer = async () => {
+// Проверка GamePass
+app.post('/check', async (req, res) => {
   try {
-    console.log('[Keep-Alive] Pinging server...');
-    const response = await fetch(`https://${RENDER_INSTANCE_NAME}.onrender.com/ping`);
-    const data = await response.text();
-    console.log(`[Keep-Alive] Server response: ${data}`);
-  } catch (e) {
-    console.error('[Keep-Alive] Ping error:', e.message);
-  }
-};
-
-// Пинг каждые 5 минут (300000 мс)
-setInterval(pingServer, 300000);
-
-// Первый пинг при запуске
-pingServer();
-
-// ======================
-// Очистка просроченных ключей
-// ======================
-const cleanExpiredKeys = () => {
-  const now = new Date();
-  let deletedCount = 0;
-
-  activatedKeys.forEach((value, key) => {
-    if (now > new Date(value.expires)) {
-      activatedKeys.delete(key);
-      deletedCount++;
-    }
-  });
-
-  console.log(`[Cleanup] Удалено ${deletedCount} просроченных ключей`);
-};
-
-// Очистка каждые 12 часов
-setInterval(cleanExpiredKeys, 43200000); 
-
-// Первая очистка при запуске
-cleanExpiredKeys();
-
-// ======================
-// Роуты
-// ======================
-app.get('/ping', (req, res) => res.send('pong'));
-
-app.post('/check', (req, res) => {
-  try {
-    const { key, userId } = req.body;
-
-    // Валидация
-    if (!key || !userId || typeof userId !== 'number') {
-      return res.status(400).json({ valid: false, error: "Неверные данные" });
+    // Проверка секретного ключа
+    if (req.headers['x-auth'] !== SECRET) {
+      return res.status(401).json({ error: "Invalid auth key" });
     }
 
-    // Проверка ключа
-    if (!VALID_KEYS.has(key)) {
-      return res.json({ valid: false, error: "Неверный ключ" });
+    const { userId } = req.body;
+    if (!userId || typeof userId !== 'number') {
+      return res.status(400).json({ error: "Invalid user ID" });
     }
 
-    // Проверка активации
-    if (activatedKeys.has(key)) {
-      const keyData = activatedKeys.get(key);
-      const now = new Date();
-      const expiresDate = new Date(keyData.expires);
-
-      // Если ключ просрочен
-      if (now > expiresDate) {
-        activatedKeys.delete(key);
-        return res.json({ valid: false, error: "Ключ истёк" });
-      }
-
-      // Если ключ активирован тем же пользователем
-      if (keyData.userId === userId) {
-        return res.json({ 
-          valid: true, 
-          expires: keyData.expires,
-          activated: keyData.activated
-        });
-      }
-
-      // Если ключ занят другим пользователем
-      return res.json({ 
-        valid: false, 
-        error: `Ключ уже использован игроком #${keyData.userId}`,
-        expires: keyData.expires
-      });
+    // Запрос к Roblox API
+    const ROBLOX_API_URL = `https://inventory.roblox.com/v1/users/${userId}/items/GamePass/${GAMEPASS_ID}`;
+    const apiResponse = await fetch(ROBLOX_API_URL);
+    
+    if (!apiResponse.ok) {
+      throw new Error(`Roblox API error: ${apiResponse.status}`);
     }
 
-    // Активация нового ключа
-    activatedKeys.set(key, {
-      userId,
-      activated: new Date().toISOString(),
-      expires: new Date(Date.now() + 604800000).toISOString() // 7 дней
-    });
+    const data = await apiResponse.json();
+    const hasPremium = data.data?.length > 0;
 
-    res.json({ 
-      valid: true,
-      expires: activatedKeys.get(key).expires,
-      activated: activatedKeys.get(key).activated
+    res.json({
+      valid: hasPremium,
+      isPremium: hasPremium,
+      message: hasPremium ? "Premium access granted" : "Purchase GamePass to unlock"
     });
 
   } catch (err) {
-    console.error("Ошибка сервера:", err);
-    res.status(500).json({ error: "Внутренняя ошибка" });
+    console.error("Server error:", err);
+    res.status(500).json({ error: "Internal server error" });
   }
 });
 
-// ======================
+// Keep-Alive для Render
+app.get('/ping', (req, res) => res.send('pong'));
+
 // Запуск сервера
-// ======================
 app.listen(PORT, () => {
-  console.log(`Сервер запущен на порту ${PORT}`);
-  console.log(`Доступно ключей: ${VALID_KEYS.size}`);
-  console.log(`Keep-Alive будет пинговать https://${RENDER_INSTANCE_NAME}.onrender.com каждые 5 минут`);
-  console.log(`Очистка просроченных ключей выполняется каждые 12 часов`);
+  console.log(`Server started on port ${PORT}`);
+  console.log(`GamePass ID: ${GAMEPASS_ID}`);
+  console.log(`Secret key: ${SECRET}`);
 });
